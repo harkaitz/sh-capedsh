@@ -1,0 +1,73 @@
+#!/bin/sh -e
+##:
+#h: Usage: capedsh -F FILE -IGNORED -c COMMAND
+#h:
+#h: Open a caped/restricted shell that only allows the commands listed
+#h: in "/etc/capedsh".
+#h:
+#h: This file accepts the following format:
+#h: =COMMAND       : Will allow executing "COMMAND ARGUMENTS...".
+#h: @COMMAND       : Will allow executing "COMMAND".
+#h: !ssh-copy-id-n : Allow "ssh-copy-id".
+#h: !ssh-copy-id-1 : Allow "ssh-copy-id", but only one key.
+#h: @passwd        : Allow changing the password with "passwd".
+#h:
+#h: You can create a restricted user with "useradd -m -s /bin/capedsh USER".
+##:
+capedsh() {
+    local OPTIND optopt shargs='' cmd='' CAPEDSH_FILE="/etc/capedsh"
+    
+    ## Parse command line arguments.
+    while getopts "F:lic:" optopt; do
+        case $optopt in
+            F)   CAPEDSH_FILE="${OPTARG}";;
+            l|i) shargs="${shargs} -${optopt}";;
+            c)   cmd="${OPTARG}";;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+    
+    ## Operations.
+    if test ! -n "${cmd}"; then
+        while read -r cmd; do
+            capedsh_exec ${cmd}
+        done
+        return 0
+    elif test ! @"${cmd}" = @"${MAGIC1}"; then
+        capedsh_exec ${cmd}
+        return 0
+    elif grep -qFx "!ssh-copy-id-n" "${CAPEDSH_FILE}"; then
+        eval "${MAGIC1}"
+        return 0
+    elif grep -qFx "!ssh-copy-id-1" "${CAPEDSH_FILE}"; then
+        rm -f ~/.ssh/authorized_keys
+        eval "${MAGIC1}"
+        return 0
+    else
+        echo >&2 "ssh-copy-id is disabled in the server."
+        return 1
+    fi
+}
+capedsh_exec() {
+    if test ! -n "${1}" || test @"${*}" = @"exit"; then
+        return 0
+    elif test @"${1}" = @"exit"; then
+        "$@"
+    elif grep -qFx "@${1}" "${CAPEDSH_FILE}" 2>/dev/null; then
+        "$1"
+    elif grep -qFx "=${1}" "${CAPEDSH_FILE}" 2>/dev/null; then
+        "$@"
+    else
+        printf >&2 'Not authorized: %s\n' "$*"
+        return 1
+    fi
+}
+MAGIC1="exec sh -c 'cd; umask 077; mkdir -p .ssh &&   { [ -z \`tail -1c .ssh/authorized_keys 2>/dev/null\` ] || echo >> .ssh/authorized_keys; } &&   cat >> .ssh/authorized_keys ||   exit 1; if type restorecon >/dev/null 2>&1; then   restorecon -F .ssh .ssh/authorized_keys; fi '"
+## -------------------------------------------------------------------
+if test @"$(basename "$0")" = @"capedsh";then
+    case "${1}" in
+        -h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        *)         capedsh "$@"; exit 0             ;;
+    esac
+fi
