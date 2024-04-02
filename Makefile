@@ -1,4 +1,4 @@
-PROJECT=sh-capedsh
+PROJECT=capedsh
 VERSION=1.0.0
 PREFIX=
 all:
