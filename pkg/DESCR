@@ -1,0 +1,1 @@
+A restricted shell to put in /etc/passwd to allow a user only some commands.
